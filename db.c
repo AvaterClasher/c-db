@@ -1,51 +1,34 @@
-#include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-struct Connection_t {
-  int file_descriptor;
-};
-
-typedef struct Connection_t Connection;
-
-Connection *open_connection(char *filename) {
-  int fd = open(filename,
-                O_RDWR |      // Read/Write mode
-                    O_CREAT,  // Create file if it does not exist
-                S_IWUSR |     // Create file with user write permission
-                    S_IRUSR   // Create file with user read permission
-  );
-
-  if (fd == -1) {
-    printf("Unable to open file '%s'\n", filename);
-    exit(EXIT_FAILURE);
-  }
-
-  Connection *connection = malloc(sizeof(Connection));
-  connection->file_descriptor = fd;
-
-  return connection;
-}
-
-char *get_db_filename(int argc, char *argv[]) {
-  if (argc < 2) {
-    printf("Must supply a filename for the database.\n");
-    exit(EXIT_FAILURE);
-  }
-  return argv[1];
-}
-
 struct InputBuffer_t {
-  char *buffer;
+  char* buffer;
   size_t buffer_length;
   ssize_t input_length;
 };
 typedef struct InputBuffer_t InputBuffer;
 
-InputBuffer *new_input_buffer() {
-  InputBuffer *input_buffer = malloc(sizeof(InputBuffer));
+enum MetaCommandResult_t {
+  META_COMMAND_SUCCESS,
+  META_COMMAND_UNRECOGNIZED_COMMAND
+};
+typedef enum MetaCommandResult_t MetaCommandResult;
+
+enum PrepareResult_t { PREPARE_SUCCESS, PREPARE_UNRECOGNIZED_STATEMENT };
+typedef enum PrepareResult_t PrepareResult;
+
+enum StatementType_t { STATEMENT_INSERT, STATEMENT_SELECT };
+typedef enum StatementType_t StatementType;
+
+struct Statement_t {
+  StatementType type;
+};
+typedef struct Statement_t Statement;
+
+InputBuffer* new_input_buffer() {
+  InputBuffer* input_buffer = malloc(sizeof(InputBuffer));
   input_buffer->buffer = NULL;
   input_buffer->buffer_length = 0;
   input_buffer->input_length = 0;
@@ -55,7 +38,7 @@ InputBuffer *new_input_buffer() {
 
 void print_prompt() { printf("c-db > "); }
 
-void read_input(InputBuffer *input_buffer) {
+void read_input(InputBuffer* input_buffer) {
   ssize_t bytes_read =
       getline(&(input_buffer->buffer), &(input_buffer->buffer_length), stdin);
 
@@ -69,19 +52,66 @@ void read_input(InputBuffer *input_buffer) {
   input_buffer->buffer[bytes_read - 1] = 0;
 }
 
-int main(int argc, char *argv[]) {
-  char *db_filename = get_db_filename(argc, argv);
-  Connection *connection = open_connection(db_filename);
+MetaCommandResult do_meta_command(InputBuffer* input_buffer) {
+  if (strcmp(input_buffer->buffer, ".exit") == 0) {
+    exit(EXIT_SUCCESS);
+  } else {
+    return META_COMMAND_UNRECOGNIZED_COMMAND;
+  }
+}
 
-  InputBuffer *input_buffer = new_input_buffer();
+PrepareResult prepare_statement(InputBuffer* input_buffer,
+                                Statement* statement) {
+  if (strncmp(input_buffer->buffer, "insert", 6) == 0) {
+    statement->type = STATEMENT_INSERT;
+    return PREPARE_SUCCESS;
+  }
+  if (strcmp(input_buffer->buffer, "select") == 0) {
+    statement->type = STATEMENT_SELECT;
+    return PREPARE_SUCCESS;
+  }
+
+  return PREPARE_UNRECOGNIZED_STATEMENT;
+}
+
+void execute_statement(Statement* statement) {
+  switch (statement->type) {
+    case (STATEMENT_INSERT):
+      printf("Insert command.\n");
+      break;
+    case (STATEMENT_SELECT):
+      printf("Select command.\n");
+      break;
+  }
+}
+
+int main(int argc, char* argv[]) {
+  InputBuffer* input_buffer = new_input_buffer();
   while (true) {
     print_prompt();
     read_input(input_buffer);
 
-    if (strcmp(input_buffer->buffer, ".exit") == 0) {
-      exit(EXIT_SUCCESS);
-    } else {
-      printf("Unrecognized command '%s'.\n", input_buffer->buffer);
+    if (input_buffer->buffer[0] == '.') {
+      switch (do_meta_command(input_buffer)) {
+        case (META_COMMAND_SUCCESS):
+          continue;
+        case (META_COMMAND_UNRECOGNIZED_COMMAND):
+          printf("Unrecognized command '%s'\n", input_buffer->buffer);
+          continue;
+      }
     }
+
+    Statement statement;
+    switch (prepare_statement(input_buffer, &statement)) {
+      case (PREPARE_SUCCESS):
+        break;
+      case (PREPARE_UNRECOGNIZED_STATEMENT):
+        printf("Unrecognized keyword at start of '%s'.\n",
+               input_buffer->buffer);
+        continue;
+    }
+
+    execute_statement(&statement);
+    printf("Executed.\n");
   }
 }
